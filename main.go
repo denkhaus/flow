@@ -1,6 +1,9 @@
 package flow
 
 import (
+	"context"
+	"time"
+
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 )
@@ -63,4 +66,23 @@ func ChainWraped(fns ...func() (string, error)) error {
 	}
 
 	return nil
+}
+
+func SleepWithContext(ctx context.Context, sleep time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(sleep):
+	}
+}
+
+func SleepUntilWithContext(ctx context.Context, until time.Time) {
+	timer := time.NewTimer(time.Until(until))
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return
+	case <-ctx.Done():
+		return
+	}
 }
