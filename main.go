@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 type ErrorFunc func() error
@@ -23,7 +24,7 @@ func (p *chainTerminator) publishMessage() {
 	p.logger.Sugar().Infof(p.message, p.args...)
 }
 
-func TerminateChain(logger *zap.Logger, msg string, args ...interface{}) error {
+func TerminateAll(logger *zap.Logger, msg string, args ...interface{}) error {
 	return &chainTerminator{
 		message: msg,
 		logger:  logger,
@@ -31,41 +32,118 @@ func TerminateChain(logger *zap.Logger, msg string, args ...interface{}) error {
 	}
 }
 
-func WrappedChainFunc(message string, fn ErrorFunc) ErrorFunc {
+func WrappedStep(message string, fn ErrorFunc) ErrorFunc {
 	return func() error {
-		err := fn()
-		if chainTerm, ok := err.(*chainTerminator); ok {
-			chainTerm.publishMessage()
-			return nil
-		}
-
-		return errors.Wrap(err, message)
+		return errors.Wrap(fn(), message)
 	}
 }
 
-func Chain(fns ...func() error) error {
+func Parallel(fns ...ErrorFunc) error {
+	group := new(errgroup.Group)
+	for _, fn := range fns {
+		group.Go(fn)
+	}
+
+	if err := group.Wait(); err != nil {
+		return handleTerminator(err)
+	}
+	return nil
+}
+
+func ParallelWithContext(ctx context.Context, fns ...ErrorFunc) error {
+	group, _ := errgroup.WithContext(ctx)
+	for _, fn := range fns {
+		group.Go(fn)
+	}
+
+	if err := group.Wait(); err != nil {
+		return handleTerminator(err)
+	}
+	return nil
+}
+
+func ParallelStep(fns ...ErrorFunc) ErrorFunc {
+	return func() error {
+		group := new(errgroup.Group)
+		for _, fn := range fns {
+			group.Go(fn)
+		}
+
+		if err := group.Wait(); err != nil {
+			return handleTerminator(err)
+		}
+		return nil
+	}
+}
+
+func ParallelStepWithContext(ctx context.Context, fns ...ErrorFunc) ErrorFunc {
+	return func() error {
+		group, _ := errgroup.WithContext(ctx)
+		for _, fn := range fns {
+			group.Go(fn)
+		}
+
+		if err := group.Wait(); err != nil {
+			return handleTerminator(err)
+		}
+		return nil
+	}
+}
+
+func Sequence(fns ...ErrorFunc) error {
 	for _, fn := range fns {
 		if err := fn(); err != nil {
-			if chainTerm, ok := err.(*chainTerminator); ok {
-				chainTerm.publishMessage()
-				return nil
-			}
-
-			return err
+			return handleTerminator(err)
 		}
 	}
 
 	return nil
 }
 
-func ChainWraped(fns ...func() (string, error)) error {
+func SequenceWithContext(ctx context.Context, fns ...ErrorFunc) error {
 	for _, fn := range fns {
-		if msg, err := fn(); err != nil {
-			return errors.Wrap(err, msg)
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		if err := fn(); err != nil {
+			return handleTerminator(err)
 		}
 	}
 
 	return nil
+}
+
+func SequenceStep(fns ...ErrorFunc) ErrorFunc {
+	return func() error {
+		for _, fn := range fns {
+			if err := fn(); err != nil {
+				return handleTerminator(err)
+			}
+		}
+
+		return nil
+	}
+}
+
+func SequenceStepWithContext(ctx context.Context, fns ...ErrorFunc) ErrorFunc {
+	return func() error {
+		for _, fn := range fns {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+
+			if err := fn(); err != nil {
+				return handleTerminator(err)
+			}
+		}
+
+		return nil
+	}
 }
 
 func SleepWithContext(ctx context.Context, sleep time.Duration) {
@@ -85,4 +163,13 @@ func SleepUntilWithContext(ctx context.Context, until time.Time) {
 	case <-ctx.Done():
 		return
 	}
+}
+
+func handleTerminator(err error) error {
+	if chainTerm, ok := errors.Cause(err).(*chainTerminator); ok {
+		chainTerm.publishMessage()
+		return nil
+	}
+
+	return err
 }
