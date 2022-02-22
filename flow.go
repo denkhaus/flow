@@ -7,6 +7,11 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/retry.v1"
+)
+
+var (
+	errRetry = errors.New("retry error")
 )
 
 type ErrorFunc func() error
@@ -32,6 +37,10 @@ func TerminateAll(logger *zap.Logger, msg string, args ...interface{}) error {
 	}
 }
 
+func Retry() error {
+	return errRetry
+}
+
 func WrappedStep(message string, fn ErrorFunc) ErrorFunc {
 	return func() error {
 		return errors.Wrap(fn(), message)
@@ -48,6 +57,21 @@ func Parallel(fns ...ErrorFunc) error {
 		return handleTerminator(err)
 	}
 	return nil
+}
+
+func RetryableStep(strategy retry.Strategy, fn ErrorFunc) ErrorFunc {
+	return func() error {
+		for a := retry.Start(strategy, nil); a.Next(); {
+			if err := fn(); err != nil {
+				if errors.Is(err, errRetry) {
+					continue
+				}
+				return err
+			}
+		}
+
+		return nil
+	}
 }
 
 func ParallelWithContext(ctx context.Context, fns ...ErrorFunc) error {
