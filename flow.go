@@ -47,18 +47,6 @@ func WrappedStep(message string, fn ErrorFunc) ErrorFunc {
 	}
 }
 
-func Parallel(fns ...ErrorFunc) error {
-	group := new(errgroup.Group)
-	for _, fn := range fns {
-		group.Go(fn)
-	}
-
-	if err := group.Wait(); err != nil {
-		return handleTerminator(err)
-	}
-	return nil
-}
-
 func RetryableStep(strategy retry.Strategy, fn ErrorFunc) ErrorFunc {
 	return func() error {
 		for a := retry.Start(strategy, nil); a.Next(); {
@@ -72,6 +60,18 @@ func RetryableStep(strategy retry.Strategy, fn ErrorFunc) ErrorFunc {
 
 		return nil
 	}
+}
+
+func Parallel(fns ...ErrorFunc) error {
+	group := new(errgroup.Group)
+	for _, fn := range fns {
+		group.Go(fn)
+	}
+
+	if err := group.Wait(); err != nil {
+		return handleTerminator(err)
+	}
+	return nil
 }
 
 func ParallelWithContext(ctx context.Context, fns ...ErrorFunc) error {
