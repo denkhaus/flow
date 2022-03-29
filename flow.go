@@ -16,9 +16,10 @@ var (
 
 type ErrorFunc func() error
 type chainTerminator struct {
-	message string
-	logger  *zap.Logger
-	args    []interface{}
+	message        string
+	propagateError bool
+	logger         *zap.Logger
+	args           []interface{}
 }
 
 func (p *chainTerminator) Error() string {
@@ -31,9 +32,19 @@ func (p *chainTerminator) publishMessage() {
 
 func TerminateAll(logger *zap.Logger, msg string, args ...interface{}) error {
 	return &chainTerminator{
-		message: msg,
-		logger:  logger,
-		args:    args,
+		propagateError: false,
+		message:        msg,
+		logger:         logger,
+		args:           args,
+	}
+}
+
+func TerminateAllWithError(logger *zap.Logger, msg string, args ...interface{}) error {
+	return &chainTerminator{
+		propagateError: true,
+		message:        msg,
+		logger:         logger,
+		args:           args,
 	}
 }
 
@@ -192,6 +203,10 @@ func SleepUntilWithContext(ctx context.Context, until time.Time) {
 func handleTerminator(err error) error {
 	if chainTerm, ok := errors.Cause(err).(*chainTerminator); ok {
 		chainTerm.publishMessage()
+		if chainTerm.propagateError {
+			return chainTerm
+		}
+
 		return nil
 	}
 
