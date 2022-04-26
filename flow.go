@@ -48,8 +48,22 @@ func TerminateAllWithError(logger *zap.Logger, msg string, args ...interface{}) 
 	}
 }
 
+func Nop() ErrorFunc {
+	return func() error {
+		return nil
+	}
+}
+
 func Retry() error {
 	return errRetry
+}
+
+func IfThenElse(condition bool, thenFn ErrorFunc, elseFn ErrorFunc) error {
+	if condition {
+		return thenFn()
+	} else {
+		return elseFn()
+	}
 }
 
 func WrappedStep(message string, fn ErrorFunc) ErrorFunc {
