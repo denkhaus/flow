@@ -66,6 +66,16 @@ func IfThenElse(condition bool, thenFn ErrorFunc, elseFn ErrorFunc) error {
 	}
 }
 
+func IfThenElseStep(condition bool, thenFn ErrorFunc, elseFn ErrorFunc) ErrorFunc {
+	return func() error {
+		if condition {
+			return thenFn()
+		} else {
+			return elseFn()
+		}
+	}
+}
+
 func WrappedStep(message string, fn ErrorFunc) ErrorFunc {
 	return func() error {
 		return errors.Wrap(fn(), message)
